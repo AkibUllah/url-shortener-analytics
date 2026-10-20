@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block content %}
+<header>
+  <h1>{{ app_name }}</h1>
+  <p>Paste a long URL, get a short one. Add <code>+</code> to any short link to see its stats.</p>
+</header>
+<section class="card">
+  <form method="post" action="/shorten">
+    <label for="url">Long URL</label>
+    <input type="url" id="url" name="url" placeholder="https://example.com/very/long/path?with=params" required>
+    <label for="alias">Custom alias (optional)</label>
+    <input type="text" id="alias" name="alias" placeholder="eid-offer-2026" pattern="[A-Za-z0-9_-]{3,32}">
+    {% if error %}<p class="error">{{ error }}</p>{% endif %}
+    <button type="submit">Shorten</button>
+  </form>
+</section>
+{% if result %}
+<section class="card result">
+  <p>Your short link: <a href="{{ result.short_url }}"><code>{{ result.short_url }}</code></a></p>
+  <p class="muted">Points to {{ result.target_url }}</p>
+  <p class="muted">Stats: <a href="/{{ result.code }}+">/{{ result.code }}+</a> &middot; QR: <a href="/api/v1/links/{{ result.code }}/qr">PNG</a></p>
+</section>
+{% endif %}
+{% endblock %}
