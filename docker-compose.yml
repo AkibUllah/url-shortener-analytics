@@ -1,0 +1,44 @@
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      SHORTENER_BASE_URL: ${SHORTENER_BASE_URL:-http://localhost:8000}
+      SHORTENER_DATABASE_URL: postgresql+psycopg://shortener:shortener@db:5432/shortener
+      SHORTENER_REDIS_URL: redis://redis:6379/0
+      SHORTENER_API_KEY: ${SHORTENER_API_KEY:-dev-api-key-change-me}
+      SHORTENER_IP_HASH_SECRET: ${SHORTENER_IP_HASH_SECRET:-change-me-too}
+      SHORTENER_GEOIP_ENABLED: "true"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: shortener
+      POSTGRES_PASSWORD: shortener
+      POSTGRES_DB: shortener
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shortener -d shortener"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--maxmemory", "64mb", "--maxmemory-policy", "allkeys-lru"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:
