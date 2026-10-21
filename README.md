@@ -1,3 +1,4 @@
+<!-- topics: fastapi,python,url-shortener,analytics,redis,qr-code,sqlalchemy,docker -->
 # URL Shortener with Analytics
 
 A small, complete FastAPI service that turns long URLs into short codes and tells you who clicked them.
