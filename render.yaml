@@ -1,0 +1,43 @@
+# Render blueprint: API + managed PostgreSQL + Key Value (Redis-compatible) cache / rate limiter.
+# Short URLs use Render's RENDER_EXTERNAL_URL automatically unless SHORTENER_BASE_URL is set.
+# https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: url-shortener-analytics
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: PORT
+        value: "8000"
+      - key: SHORTENER_LOG_LEVEL
+        value: INFO
+      - key: SHORTENER_GEOIP_ENABLED
+        value: "true"
+      - key: SHORTENER_DATABASE_URL
+        fromDatabase:
+          name: shortener-db
+          property: connectionString
+      - key: SHORTENER_REDIS_URL
+        fromService:
+          type: keyvalue
+          name: shortener-redis
+          property: connectionString
+      - key: SHORTENER_API_KEY
+        generateValue: true
+      - key: SHORTENER_IP_HASH_SECRET
+        generateValue: true
+
+  - type: keyvalue
+    name: shortener-redis
+    plan: free
+    ipAllowList: []
+
+databases:
+  - name: shortener-db
+    plan: free
+    databaseName: shortener
+    user: shortener

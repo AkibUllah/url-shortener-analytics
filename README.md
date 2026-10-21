@@ -8,6 +8,15 @@ A small, complete FastAPI service that turns long URLs into short codes and tell
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
+## Try it live
+
+| | |
+|---|---|
+| API reference | https://akibullah.github.io/url-shortener-analytics/ — Swagger UI built from the exported OpenAPI document (static; no backend behind it) |
+| Run in your browser | [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/AkibUllah/url-shortener-analytics?quickstart=1) — starts API + PostgreSQL + Redis with `docker compose` and seeds the `eid-sale` link; open forwarded port 8000: `/` to shorten from the form, `/eid-sale+` for the stats page, `/docs` for the API (`X-API-Key: dev-api-key-change-me`). |
+| One-click deploy | [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/AkibUllah/url-shortener-analytics) — `render.yaml` provisions the web service, a free PostgreSQL and a Key Value store; API key and IP-hash secret are generated, short URLs use the Render hostname. |
+| Local | `docker compose up` (see Quick Start) |
+
 ## Why this exists
 
 Every campaign I have shipped for e-commerce and payment clients needed trackable links: an Eid offer sent over SMS, a bKash cashback banner, a QR code on a shop counter. Third-party shorteners leak click data to someone else and die when the free tier changes. This service is the self-hosted version: a redirect hot path that stays fast under load (Redis cache, no DB hit on repeat clicks), click analytics that are useful without storing personal data (IPs are keyed-hashed), and the operational extras (expiry, passwords, QR codes, rate limiting, API keys) that always get requested the week after launch.

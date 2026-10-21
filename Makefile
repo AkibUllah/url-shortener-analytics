@@ -1,4 +1,4 @@
-.PHONY: install dev test lint fmt run docker-up docker-down clean
+.PHONY: install dev test lint fmt run openapi docker-up docker-down clean
 
 PY ?= .venv/bin/python
 PIP ?= .venv/bin/pip
@@ -23,6 +23,9 @@ fmt:
 
 run:
 	$(PY) -m uvicorn shortener.main:app --reload --port 8000
+
+openapi:
+	$(PY) scripts/export_openapi.py
 
 docker-up:
 	docker compose up --build -d
