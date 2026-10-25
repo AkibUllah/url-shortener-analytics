@@ -70,3 +70,24 @@ def test_rate_limiter_on_redis_backend():
     assert limiter.hit("k").allowed
     assert limiter.hit("k").allowed
     assert not limiter.hit("k").allowed
+
+
+def test_cached_target_rejects_corrupt_and_non_http_entries():
+    from shortener.routers.redirect import cached_target
+
+    assert cached_target(None) is None
+    assert cached_target("not json") is None
+    assert cached_target('{"id": 1}') is None
+    assert cached_target('{"id": 1, "url": "javascript:alert(1)"}') is None
+    assert cached_target('{"id": 1, "url": "https://example.com/x"}') == (
+        1,
+        "https://example.com/x",
+    )
+
+
+def test_redirect_falls_back_to_database_when_cache_entry_is_bad(client, make_link, redis_cache):
+    code = make_link("https://example.com/landing")["code"]
+    redis_cache.set(f"link:{code}", '{"id": 1, "url": "javascript:alert(1)"}', ttl=60)
+    response = client.get(f"/{code}", follow_redirects=False)
+    assert response.status_code == 302
+    assert response.headers["location"] == "https://example.com/landing"

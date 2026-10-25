@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - CI workflow runs with a read-only `GITHUB_TOKEN` by default.
 
+### Fixed
+
+- Redirects served from the cache validate the cached entry (well-formed JSON, http/https target) and fall back to the database otherwise, instead of failing on a corrupt entry or trusting whatever the shared cache returns.
+
 ## [0.1.0] - 2026-10-25
 
 First public release.
