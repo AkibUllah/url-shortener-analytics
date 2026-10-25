@@ -4,6 +4,8 @@
 A small, complete FastAPI service that turns long URLs into short codes and tells you who clicked them.
 
 [![CI](https://github.com/AkibUllah/url-shortener-analytics/actions/workflows/ci.yml/badge.svg)](https://github.com/AkibUllah/url-shortener-analytics/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/AkibUllah/url-shortener-analytics/actions/workflows/codeql.yml/badge.svg)](https://github.com/AkibUllah/url-shortener-analytics/actions/workflows/codeql.yml)
+[![Release](https://img.shields.io/github/v/release/AkibUllah/url-shortener-analytics)](https://github.com/AkibUllah/url-shortener-analytics/releases)
 ![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688)
 ![License](https://img.shields.io/badge/license-MIT-green)
@@ -16,6 +18,16 @@ A small, complete FastAPI service that turns long URLs into short codes and tell
 | Run in your browser | [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/AkibUllah/url-shortener-analytics?quickstart=1) — starts API + PostgreSQL + Redis with `docker compose` and seeds the `eid-sale` link; open forwarded port 8000: `/` to shorten from the form, `/eid-sale+` for the stats page, `/docs` for the API (`X-API-Key: dev-api-key-change-me`). |
 | One-click deploy | [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/AkibUllah/url-shortener-analytics) — `render.yaml` provisions the web service, a free PostgreSQL and a Key Value store; API key and IP-hash secret are generated, short URLs use the Render hostname. |
 | Local | `docker compose up` (see Quick Start) |
+
+## Screenshots
+
+![Swagger UI API reference](docs/images/api-reference.png)
+
+Live API reference on GitHub Pages: link management, analytics, QR codes and the public redirect.
+
+![curl session against a local instance](docs/images/terminal-demo.png)
+
+A real curl session against a local instance: create a custom alias, follow the 302, click it from a few browsers and referrers, then read the analytics (curl's own user agent is classified as a bot).
 
 ## Why this exists
 
@@ -143,7 +155,7 @@ shortener/
 ├── routers/          # links (management), redirect, pages, health
 ├── templates/        # base, index, password, stats
 └── static/style.css
-tests/                # 61 tests
+tests/                # 68 tests
 Dockerfile · docker-compose.yml · Makefile · .github/workflows/ci.yml
 ```
 
@@ -158,11 +170,11 @@ Covered: base62 round-trips and permutation bijectivity, password and IP hashing
 
 ## Roadmap
 
-- Real GeoIP via `geoip2` + GeoLite2 behind the existing `GeoIPResolver` protocol
-- Per-key API tokens with scopes instead of one static key, and per-link ownership
-- Alembic migrations once the schema stops being `create_all`-friendly
-- Bulk CSV import/export for campaign teams
-- Click event export to Parquet for longer-term analysis outside Postgres
+- [ ] Real GeoIP via `geoip2` + GeoLite2 behind the existing `GeoIPResolver` protocol (#1)
+- [ ] Per-key API tokens with scopes instead of one static key, and per-link ownership (#2)
+- [ ] Alembic migrations once the schema stops being `create_all`-friendly (#3)
+- [ ] Bulk CSV import/export for campaign teams (#4)
+- [ ] Click event export to Parquet for longer-term analysis outside Postgres (#5)
 
 ## License
 
