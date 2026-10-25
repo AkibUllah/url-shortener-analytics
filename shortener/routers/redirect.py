@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import timezone
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
@@ -23,6 +24,27 @@ router = APIRouter(tags=["redirect"])
 
 def cache_key(code: str) -> str:
     return f"link:{code}"
+
+
+def cached_target(raw: str | bytes | None) -> tuple[int, str] | None:
+    """Decode a cached redirect entry into (link_id, target_url).
+
+    Returns None for a missing, corrupt or non-http(s) entry so the caller falls back to the
+    database instead of redirecting somewhere the API would never have accepted.
+    """
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+        link_id, url = int(data["id"]), str(data["url"])
+    except (ValueError, KeyError, TypeError):
+        logger.warning("ignoring malformed cache entry")
+        return None
+    parts = urlsplit(url)
+    if parts.scheme not in ("http", "https") or not parts.netloc:
+        logger.warning("ignoring cached redirect with unsupported target")
+        return None
+    return link_id, url
 
 
 def _resolve(service: LinkService, code: str) -> Link:
@@ -75,11 +97,11 @@ def redirect(
     settings: Settings = Depends(get_settings_dep),
     geoip: GeoIPResolver = Depends(get_geoip),
 ):
-    cached = cache.get(cache_key(code))
-    if cached:
-        data = json.loads(cached)
-        _schedule_click(request, background, data["id"], settings, geoip)
-        return RedirectResponse(data["url"], status_code=status.HTTP_302_FOUND)
+    hit = cached_target(cache.get(cache_key(code)))
+    if hit is not None:
+        link_id, target_url = hit
+        _schedule_click(request, background, link_id, settings, geoip)
+        return RedirectResponse(target_url, status_code=status.HTTP_302_FOUND)
 
     link = _resolve(service, code)
     if link.is_password_protected:
