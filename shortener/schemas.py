@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
 
@@ -65,6 +66,23 @@ class LinkList(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class ImportRowOut(BaseModel):
+    row: int = Field(description="Data row number in the file, starting at 1 after the header.")
+    status: Literal["created", "valid", "invalid", "alias_taken"]
+    code: str | None = None
+    short_url: str | None = None
+    error: str | None = None
+
+
+class ImportReport(BaseModel):
+    dry_run: bool
+    total: int
+    succeeded: int
+    failed: int
+    ignored_columns: list[str]
+    rows: list[ImportRowOut]
 
 
 class CountRow(BaseModel):
