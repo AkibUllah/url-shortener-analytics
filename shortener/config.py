@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     rate_limit_per_minute: int = Field(default=60, ge=1)
     cache_ttl_seconds: int = Field(default=3600, ge=1)
     min_code_length: int = Field(default=6, ge=4, le=12)
+    # Bulk CSV import: one request may create at most this many links from a file of this size.
+    import_max_rows: int = Field(default=1000, ge=1, le=50_000)
+    import_max_bytes: int = Field(default=1_048_576, ge=1024)
     geoip_enabled: bool = False
     log_level: str = "INFO"
 
