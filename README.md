@@ -41,6 +41,8 @@ Every campaign I have shipped for e-commerce and payment clients needed trackabl
 - Password-protected links with a PBKDF2 hash and a server-rendered unlock form
 - QR code PNG for every link (`segno`, configurable scale)
 - Click tracking in a background task: timestamp, referrer host, browser / OS / device classification, country via a pluggable GeoIP resolver (stub table included; MaxMind drops in), keyed IP hash for unique-visitor counts
+- Bulk CSV import (`url,alias,title,expires_at`, up to 1,000 rows by default) with a per-row report: valid rows are created, bad URLs, reserved or taken aliases and aliases repeated within the file are reported without failing the file; `dry_run=true` checks a file before anything is created
+- Streaming CSV export of every link with total clicks and last click time, in keyset batches so memory stays flat; the export imports unchanged into another instance, spreadsheet formulas in titles are neutralised and password hashes never leave the database
 - Analytics endpoint: clicks by day (zero-filled), top referrers, browsers, operating systems, devices, countries
 - Fixed-window rate limiting per client IP with `X-RateLimit-*` and `Retry-After` headers, shared across replicas through Redis
 - Static API key on management endpoints; public redirect, QR and stats page
@@ -121,6 +123,8 @@ curl -o eid-sale.png localhost:8000/api/v1/links/eid-sale/qr
 |---|---|---|---|
 | `POST` | `/api/v1/links` | API key | Create a link (`url`, optional `alias`, `title`, `password`, `expires_at` or `expires_in_seconds`) |
 | `GET` | `/api/v1/links?limit=&offset=` | API key | List links, newest first |
+| `POST` | `/api/v1/links/import?dry_run=false` | API key, rate limited | Create links from an uploaded CSV (`file`); returns `{total, succeeded, failed, ignored_columns, rows}` with a status per row: `created`, `valid` (dry run), `invalid`, `alias_taken`. 422 for an unreadable file or missing `url` column, 413 over the row or size limit |
+| `GET` | `/api/v1/links/export.csv` | API key | Stream all links as CSV: `url, alias, title, expires_at, short_url, is_custom, is_active, is_password_protected, created_at, total_clicks, last_click_at` |
 | `GET` | `/api/v1/links/{code}` | API key | Link details including `click_count` |
 | `DELETE` | `/api/v1/links/{code}` | API key | Deactivate a link and evict it from the cache |
 | `GET` | `/api/v1/links/{code}/analytics?days=30&top=10` | API key | Clicks by day, referrers, browsers, OS, devices, countries, unique visitors |
@@ -131,6 +135,28 @@ curl -o eid-sale.png localhost:8000/api/v1/links/eid-sale/qr
 | `GET` | `/` and `POST /shorten` | public, rate limited | Landing page and form-based shortening |
 | `GET` | `/health` | public | `{status, database, cache, version}` |
 | `GET` | `/docs`, `/openapi.json` | public | OpenAPI |
+
+### Bulk import and export
+
+```bash
+cat > campaign.csv <<'CSV'
+url,alias,title,expires_at
+https://shop.example/eid?utm_source=sms,eid-sms,Eid SMS batch,2026-12-31T23:59:59+06:00
+https://shop.example/eid?utm_source=facebook,eid-fb,Eid Facebook post,
+https://shop.example/eid?utm_source=counter,,Counter QR,
+CSV
+
+# Check the file first (nothing is created), then import it
+curl -s -X POST "localhost:8000/api/v1/links/import?dry_run=true" \
+  -H "X-API-Key: dev-api-key-change-me" -F file=@campaign.csv | jq '.failed, .rows'
+curl -s -X POST localhost:8000/api/v1/links/import \
+  -H "X-API-Key: dev-api-key-change-me" -F file=@campaign.csv | jq '.rows[] | {row, status, short_url, error}'
+
+# Every link with click totals, for the campaign report
+curl -s -o links.csv localhost:8000/api/v1/links/export.csv -H "X-API-Key: dev-api-key-change-me"
+```
+
+Each imported row is validated exactly like `POST /api/v1/links` and committed on its own, so a bad row never undoes the good ones. Columns other than the four import columns are ignored and listed in `ignored_columns` (a `password` column is deliberately not read: passwords do not belong in spreadsheets). Limits: `SHORTENER_IMPORT_MAX_ROWS` (default 1000) and `SHORTENER_IMPORT_MAX_BYTES` (default 1 MiB). The export starts with a UTF-8 BOM so Excel shows Bangla titles correctly, and titles starting with `=`, `+`, `-` or `@` get a leading apostrophe so they open as text, not formulas.
 
 Configuration is read from environment variables prefixed with `SHORTENER_`; see [`.env.example`](.env.example).
 
@@ -143,7 +169,8 @@ shortener/
 ├── db.py             # engine + session factory (SQLite StaticPool for tests)
 ├── models.py         # Link, Click
 ├── schemas.py        # request/response models, alias validation
-├── services.py       # LinkService: create with collision handling, record_click
+├── services.py       # LinkService: create with collision handling, record_click, export iterator
+├── bulk.py           # CSV import (per-row outcomes, dry run) and streaming export
 ├── analytics.py      # aggregation queries
 ├── base62.py         # encode/decode + id permutation
 ├── cache.py          # Cache protocol, MemoryCache, RedisCache
@@ -155,7 +182,7 @@ shortener/
 ├── routers/          # links (management), redirect, pages, health
 ├── templates/        # base, index, password, stats
 └── static/style.css
-tests/                # 68 tests
+tests/                # 93 tests
 Dockerfile · docker-compose.yml · Makefile · .github/workflows/ci.yml
 ```
 
@@ -166,14 +193,13 @@ make test        # pytest, SQLite in-memory + fakeredis, no services required
 make lint        # ruff check + ruff format --check
 ```
 
-Covered: base62 round-trips and permutation bijectivity, password and IP hashing, user-agent classification across desktop / mobile / tablet / bot, GeoIP stub, cache TTL and counter semantics on both backends, rate-limit window rollover, link creation (generated, custom alias, duplicate, reserved, invalid URL), forced code collision retry, redirect / 404 / 410 / cache hit / soft delete eviction, password flow, 429 behaviour, QR PNG signature, analytics aggregation and zero-filled day series, landing and stats pages, health and OpenAPI.
+Covered: base62 round-trips and permutation bijectivity, password and IP hashing, user-agent classification across desktop / mobile / tablet / bot, GeoIP stub, cache TTL and counter semantics on both backends, rate-limit window rollover, link creation (generated, custom alias, duplicate, reserved, invalid URL), forced code collision retry, redirect / 404 / 410 / cache hit / soft delete eviction, password flow, 429 behaviour, QR PNG signature, analytics aggregation and zero-filled day series, landing and stats pages, health and OpenAPI, CSV import (mixed-validity files, aliases taken in the database or repeated in the file, dry run, BOM and blank lines, unknown columns, encoding / header / row and size limits) and CSV export (click totals and last click, keyset paging, chunked streaming, formula neutralising, no password hashes, export re-imported into a second instance).
 
 ## Roadmap
 
 - [ ] Real GeoIP via `geoip2` + GeoLite2 behind the existing `GeoIPResolver` protocol (#1)
 - [ ] Per-key API tokens with scopes instead of one static key, and per-link ownership (#2)
 - [ ] Alembic migrations once the schema stops being `create_all`-friendly (#3)
-- [ ] Bulk CSV import/export for campaign teams (#4)
 - [ ] Click event export to Parquet for longer-term analysis outside Postgres (#5)
 
 ## License
