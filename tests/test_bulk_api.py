@@ -90,3 +90,84 @@ def test_row_and_size_limits_return_413(client, auth, settings) -> None:
 def test_import_is_listed_in_openapi(client) -> None:
     spec = client.get("/openapi.json").json()
     assert "post" in spec["paths"][IMPORT_URL]
+
+
+def read_export(client, auth) -> list[dict[str, str]]:
+    import csv
+    import io
+
+    response = client.get("/api/v1/links/export.csv", headers=auth)
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"] == "text/csv; charset=utf-8"
+    assert response.headers["cache-control"] == "no-store"
+    assert response.headers["content-disposition"].startswith('attachment; filename="links-')
+    assert response.content.startswith(b"\xef\xbb\xbf")
+    return list(csv.DictReader(io.StringIO(response.content.decode("utf-8-sig"))))
+
+
+def test_export_requires_api_key(client) -> None:
+    assert client.get("/api/v1/links/export.csv").status_code == 401
+
+
+def test_export_lists_links_with_click_totals(client, auth, make_link) -> None:
+    sale = make_link("https://shop.example/eid", alias="eid-sale", title="ঈদ অফার")
+    plain = make_link("https://shop.example/plain", expires_at="2030-01-01T00:00:00Z")
+    make_link("https://shop.example/locked", alias="locked", password="hunter22")
+    for _ in range(3):
+        client.get("/eid-sale", follow_redirects=False)
+    client.delete("/api/v1/links/locked", headers=auth)
+
+    rows = read_export(client, auth)
+    assert list(rows[0]) == [
+        "url",
+        "alias",
+        "title",
+        "expires_at",
+        "short_url",
+        "is_custom",
+        "is_active",
+        "is_password_protected",
+        "created_at",
+        "total_clicks",
+        "last_click_at",
+    ]
+    assert [r["alias"] for r in rows] == ["eid-sale", plain["code"], "locked"]
+    first, second, third = rows
+    assert first["title"] == "ঈদ অফার"
+    assert first["short_url"] == sale["short_url"]
+    assert (first["is_custom"], first["total_clicks"]) == ("true", "3")
+    assert first["last_click_at"].endswith("Z")
+    assert (second["is_custom"], second["total_clicks"], second["last_click_at"]) == (
+        "false",
+        "0",
+        "",
+    )
+    assert second["expires_at"] == "2030-01-01T00:00:00Z"
+    assert (third["is_active"], third["is_password_protected"]) == ("false", "true")
+    assert "hunter22" not in str(rows) and "pbkdf2" not in str(rows)
+
+
+def test_export_neutralises_spreadsheet_formulas(client, auth, make_link) -> None:
+    make_link(title='=HYPERLINK("http://evil.example","win")')
+    make_link(title="-10% Eid deal")
+    titles = [r["title"] for r in read_export(client, auth)]
+    assert titles == ['\'=HYPERLINK("http://evil.example","win")', "'-10% Eid deal"]
+
+
+def test_export_can_be_imported_elsewhere(client, auth, make_link, app, settings) -> None:
+    from fastapi.testclient import TestClient
+
+    from shortener.geoip import StaticGeoIP
+    from shortener.main import create_app
+
+    make_link("https://shop.example/a", alias="promo-a", title="Promo A")
+    make_link("https://shop.example/b")
+    exported = client.get("/api/v1/links/export.csv", headers=auth).content
+
+    other = create_app(settings=settings.model_copy(), geoip=StaticGeoIP())
+    with TestClient(other, base_url="http://sho.rt") as second:
+        report = upload(second, auth, exported).json()
+        assert (report["succeeded"], report["failed"]) == (2, 0)
+        assert "total_clicks" in report["ignored_columns"]
+        copied = second.get("/api/v1/links/promo-a", headers=auth).json()
+        assert (copied["target_url"], copied["title"]) == ("https://shop.example/a", "Promo A")
