@@ -43,3 +43,13 @@ def test_explicit_base_url_wins_over_render_external_url(monkeypatch: pytest.Mon
     monkeypatch.setenv("SHORTENER_BASE_URL", "https://sho.rt")
     assert Settings(_env_file=None).base_url == "https://sho.rt"
     assert Settings(_env_file=None, base_url="http://kw.example").base_url == "http://kw.example"
+
+
+def test_import_limits_default_and_reject_nonsense() -> None:
+    settings = Settings(_env_file=None)
+    assert settings.import_max_rows == 1000
+    assert settings.import_max_bytes == 1_048_576
+    with pytest.raises(ValueError):
+        Settings(_env_file=None, import_max_rows=0)
+    with pytest.raises(ValueError):
+        Settings(_env_file=None, import_max_bytes=10)
