@@ -152,3 +152,18 @@ def test_iter_with_last_click_pages_through_every_link(service: LinkService) -> 
     assert rows[1][1] == datetime(2026, 10, 9, 12, tzinfo=timezone.utc)
     assert rows[1][0].click_count == 3
     assert [clicked for _, clicked in rows if clicked is None] == [None] * 4
+
+
+def test_export_csv_flushes_in_chunks(service: LinkService, monkeypatch) -> None:
+    import shortener.bulk
+    from shortener.bulk import export_csv
+
+    monkeypatch.setattr(shortener.bulk, "EXPORT_FLUSH_ROWS", 2)
+    for i in range(5):
+        service.create(LinkCreate(url=f"https://example.com/{i}"))
+
+    chunks = list(export_csv(service.iter_with_last_click(batch_size=3), "http://sho.rt/"))
+    assert len(chunks) == 3  # header + 2 rows, 2 rows, last row
+    assert chunks[0].startswith(b"\xef\xbb\xbfurl,alias,")
+    assert b"".join(chunks).count(b"\r\n") == 6
+    assert chunks[1].count(b"\r\n") == 2

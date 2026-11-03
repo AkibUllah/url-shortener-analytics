@@ -3,17 +3,36 @@
 from __future__ import annotations
 
 import io
+from collections.abc import Iterator
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    UploadFile,
+    status,
+)
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
 from shortener.analytics import link_analytics
-from shortener.bulk import CREATED, VALID, CsvImportError, import_links, parse_import_csv
+from shortener.bulk import (
+    CREATED,
+    VALID,
+    CsvImportError,
+    export_csv,
+    import_links,
+    parse_import_csv,
+)
 from shortener.cache import Cache
 from shortener.config import Settings
 from shortener.deps import get_cache, get_db, get_link_service, get_settings_dep, rate_limited
-from shortener.models import Link
+from shortener.models import Link, utcnow
 from shortener.schemas import (
     ImportReport,
     ImportRowOut,
@@ -126,6 +145,41 @@ async def import_links_csv(
             )
             for r in result.rows
         ],
+    )
+
+
+@router.get(
+    "/export.csv",
+    response_class=StreamingResponse,
+    responses={200: {"content": {"text/csv": {}}}},
+    dependencies=[Depends(require_api_key)],
+)
+def export_links_csv(
+    request: Request, settings: Settings = Depends(get_settings_dep)
+) -> StreamingResponse:
+    """Stream every link with its total clicks and last click time as CSV.
+
+    The first four columns match the import format, so the file can be imported elsewhere.
+    """
+    session_factory = request.app.state.session_factory
+
+    def chunks() -> Iterator[bytes]:
+        # The stream outlives the request's dependencies, so it owns its session.
+        db = session_factory()
+        try:
+            service = LinkService(db, min_code_length=settings.min_code_length)
+            yield from export_csv(service.iter_with_last_click(), settings.short_url_prefix)
+        finally:
+            db.close()
+
+    filename = f"links-{utcnow():%Y%m%d-%H%M%S}.csv"
+    return StreamingResponse(
+        chunks(),
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+        },
     )
 
 

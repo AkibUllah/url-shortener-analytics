@@ -10,14 +10,34 @@ from __future__ import annotations
 
 import csv
 import io
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
+from datetime import datetime
 
 from pydantic import ValidationError
 
+from shortener.models import Link
 from shortener.schemas import LinkCreate
-from shortener.services import AliasTakenError, LinkService
+from shortener.services import AliasTakenError, LinkService, as_utc
 
 IMPORT_COLUMNS = ("url", "alias", "title", "expires_at")
+# The import columns come first, so an export can be imported into another instance unchanged
+# (``alias`` holds the short code, generated or custom). Password hashes are never exported.
+EXPORT_COLUMNS = (
+    *IMPORT_COLUMNS,
+    "short_url",
+    "is_custom",
+    "is_active",
+    "is_password_protected",
+    "created_at",
+    "total_clicks",
+    "last_click_at",
+)
+EXPORT_FLUSH_ROWS = 200
+
+# Spreadsheet apps run cells starting with these characters as formulas. Titles are user input,
+# so such text cells get a leading apostrophe on export (OWASP "CSV injection").
+_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
 
 # Row statuses. ``valid`` is used instead of ``created`` on a dry run.
 CREATED = "created"
@@ -163,3 +183,47 @@ def import_links(service: LinkService, parsed: ParsedCsv, *, dry_run: bool = Fal
 
 def _alias_taken(number: int, alias: str | None) -> ImportRow:
     return ImportRow(number, ALIAS_TAKEN, code=alias, error=f"alias '{alias}' is already taken")
+
+
+def safe_cell(value: str) -> str:
+    return "'" + value if value.startswith(_FORMULA_PREFIXES) else value
+
+
+def _iso(value: datetime | None) -> str:
+    value = as_utc(value)
+    return value.isoformat().replace("+00:00", "Z") if value else ""
+
+
+def export_csv(
+    rows: Iterable[tuple[Link, datetime | None]], short_url_prefix: str
+) -> Iterator[bytes]:
+    """Encode links as CSV chunks: a UTF-8 BOM (so Excel reads Bangla titles), the header, then
+    rows flushed every ``EXPORT_FLUSH_ROWS`` so a large export never sits in memory whole."""
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, lineterminator="\r\n")
+    buffer.write("\ufeff")
+    writer.writerow(EXPORT_COLUMNS)
+    pending = 0
+    for link, last_click_at in rows:
+        writer.writerow(
+            [
+                link.target_url,
+                link.code,
+                safe_cell(link.title) if link.title else "",
+                _iso(link.expires_at),
+                short_url_prefix + link.code,
+                str(link.is_custom).lower(),
+                str(link.is_active).lower(),
+                str(link.is_password_protected).lower(),
+                _iso(link.created_at),
+                link.click_count,
+                _iso(last_click_at),
+            ]
+        )
+        pending += 1
+        if pending == EXPORT_FLUSH_ROWS:
+            yield buffer.getvalue().encode()
+            buffer.seek(0)
+            buffer.truncate()
+            pending = 0
+    yield buffer.getvalue().encode()
