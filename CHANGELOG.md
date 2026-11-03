@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `POST /api/v1/links/import`: create links from a CSV file (`url,alias,title,expires_at`) with a per-row report (`created`, `invalid`, `alias_taken`); bad rows never fail the whole file, `dry_run=true` validates without creating anything. Limits via `SHORTENER_IMPORT_MAX_ROWS` and `SHORTENER_IMPORT_MAX_BYTES` (#4).
+- `GET /api/v1/links/export.csv`: streams every link with total clicks and last click time in keyset batches; the file re-imports unchanged, titles are guarded against spreadsheet formula injection and password hashes are never exported (#4).
+
 - CodeQL code scanning workflow and Dependabot configuration (pip, Docker, GitHub Actions).
 - API reference and terminal screenshots in the README.
 - Roadmap tracked as GitHub issues under the `v0.2.0` milestone.
