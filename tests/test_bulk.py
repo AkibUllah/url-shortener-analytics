@@ -128,3 +128,27 @@ def test_dry_run_validates_without_creating(service: LinkService) -> None:
     assert result.dry_run
     assert service.get_by_code("fresh") is None
     assert service.list(limit=10, offset=0)[1] == 1
+
+
+def test_iter_with_last_click_pages_through_every_link(service: LinkService) -> None:
+    from datetime import datetime, timezone
+
+    from shortener.geoip import StaticGeoIP
+
+    links = [service.create(LinkCreate(url=f"https://example.com/{i}")) for i in range(5)]
+    for day in (3, 9, 5):
+        service.record_click(
+            links[1].id,
+            referrer=None,
+            user_agent=None,
+            ip=None,
+            ip_secret="s",
+            geoip=StaticGeoIP(),
+            clicked_at=datetime(2026, 10, day, 12, tzinfo=timezone.utc),
+        )
+
+    rows = list(service.iter_with_last_click(batch_size=2))
+    assert [link.id for link, _ in rows] == [link.id for link in links]
+    assert rows[1][1] == datetime(2026, 10, 9, 12, tzinfo=timezone.utc)
+    assert rows[1][0].click_count == 3
+    assert [clicked for _, clicked in rows if clicked is None] == [None] * 4

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import secrets
+from collections.abc import Iterator
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlsplit
 
@@ -103,6 +104,34 @@ class LinkService:
         ).all()
         return list(rows), int(total)
 
+    def iter_with_last_click(self, batch_size: int = 500) -> Iterator[tuple[Link, datetime | None]]:
+        """Every link, oldest first, with the time of its latest click.
+
+        Keyset pagination on ``id`` keeps memory flat for any number of links, and the latest
+        click is a correlated ``MAX`` that the ``(link_id, clicked_at)`` index answers directly.
+        """
+        last_click = (
+            select(func.max(Click.clicked_at))
+            .where(Click.link_id == Link.id)
+            .correlate(Link)
+            .scalar_subquery()
+        )
+        after_id = 0
+        while True:
+            batch = self.db.execute(
+                select(Link, last_click)
+                .where(Link.id > after_id)
+                .order_by(Link.id)
+                .limit(batch_size)
+                # Click counters are bumped with a core UPDATE; refresh links already loaded.
+                .execution_options(populate_existing=True)
+            ).all()
+            for link, clicked_at in batch:
+                yield link, as_utc(clicked_at)
+            if len(batch) < batch_size:
+                return
+            after_id = batch[-1][0].id
+
     def deactivate(self, link: Link) -> None:
         link.is_active = False
         self.db.commit()
@@ -141,6 +170,13 @@ class LinkService:
         )
         self.db.commit()
         return click
+
+
+def as_utc(value: datetime | None) -> datetime | None:
+    """SQLite returns naive datetimes; every stored time is UTC."""
+    if value is not None and value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value
 
 
 def referrer_host(referrer: str | None) -> str | None:
